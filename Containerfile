@@ -11,7 +11,7 @@ FROM nvidia/cuda:13.3.1-cudnn-runtime-ubi9
 ARG TORCH_CUDA_INDEX=cu126
 
 # Install Python 3.11 and git; clean dnf cache to keep layer small
-RUN dnf install -y python3.11 python3.11-pip git gcc \
+RUN dnf install -y python3.11 python3.11-pip python3.11-devel git gcc \
     && dnf clean all \
     && ln -sf /usr/bin/python3.11 /usr/local/bin/python3 \
     && ln -sf /usr/bin/python3.11 /usr/local/bin/python \
