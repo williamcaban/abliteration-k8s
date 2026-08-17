@@ -1,0 +1,31 @@
+# model-input-pvc: pre-populate with the full-precision HF model directory.
+# ReadWriteOnce is safe; use ReadOnlyMany if your storage class supports it
+# and you want to run measure and ablate pods simultaneously.
+#
+# Size guide (full-precision bf16):
+#   7B  model → ~14 Gi    12B → ~24 Gi    27B → ~54 Gi    70B → ~140 Gi
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-input-pvc
+  namespace: abliteration
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi   # adjust for your model
+---
+# workspace-pvc: measurements file + ablation YAML + abliterated model output.
+# Needs ~2x model size (measurements are small; output is another full-precision copy).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: abliteration-workspace-pvc
+  namespace: abliteration
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 200Gi   # adjust for your model (2x model size is safe)

@@ -1,0 +1,88 @@
+# Full pipeline: measure → analyze (stdout) → auto-generate YAML → ablate.
+# Uses model-input-pvc (read-only) and writes everything to abliteration-workspace-pvc.
+#
+# GPU sizing:
+#   The ablate step loads the full-precision model — size it for your model:
+#     12B (bf16) → 24 GB VRAM minimum → A10G (24 GB) or A100 (40/80 GB)
+#     27B (bf16) → 54 GB VRAM → A100 80GB or 2x A10G (NVLink)
+#     70B (bf16) → 140 GB VRAM → multi-GPU (see job-ablate.yaml notes)
+#   Measure step uses --quant 4bit so it needs only ~25% of that, but runs in
+#   the same pod here, so size for the ablate step.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: abliteration-full
+  namespace: abliteration
+spec:
+  backoffLimit: 0       # do not retry on failure
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: abliterator
+          image: <REGISTRY>/llm-abliterator:latest   # replace with your image
+          imagePullPolicy: Always
+          env:
+            - name: MODE
+              value: "full"
+            - name: MODEL_PATH
+              value: "/models/input"
+            - name: WORKSPACE_DIR
+              value: "/workspace/run"
+            - name: OUTPUT_DIR
+              value: "/workspace/run/output"
+            - name: MEASUREMENTS_FILE
+              value: "/workspace/run/measurements.pt"
+            - name: ABLATION_YAML
+              value: "/workspace/run/ablation.yml"
+            # Quantize during measure to save VRAM; ablate always runs full-precision
+            - name: QUANT
+              value: "4bit"
+            - name: PROJECTED
+              value: "true"
+            - name: NORM_PRESERVE
+              value: "true"
+            - name: SCALE
+              value: "1.0"
+            - name: SPARSITY
+              value: "0.0"
+            - name: DEST_LAYER_START
+              value: "0.30"
+            # HF token — only needed if downloading from Hub instead of local PVC
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "48Gi"
+              cpu: "4"
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "96Gi"
+              cpu: "16"
+          volumeMounts:
+            - name: model-input
+              mountPath: /models/input
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: model-input
+          persistentVolumeClaim:
+            claimName: model-input-pvc
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: abliteration-workspace-pvc
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule

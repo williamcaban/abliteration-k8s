@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Measurements and model artifacts — large binaries, keep off git
+*.pt
+*.safetensors
+*.bin
+*.gguf
+
+# Auto-generated ablation YAMLs (keep hand-crafted ones explicitly)
+ablation.yml
+
+# Secrets
+.env
+hf_token
+*.key
+
+# macOS
+.DS_Store

@@ -1,0 +1,82 @@
+# Ablate-only job — run after job-measure.yaml completes.
+# Reads measurements.pt from workspace PVC.
+# If ablation.yml already exists on the PVC (placed manually or from a prior run),
+# it is used as-is.  Otherwise auto_yaml.py generates one from the measurements.
+#
+# This job MUST have enough VRAM for the full-precision (bf16) model:
+#   12B → 24 GB    27B → 54 GB    70B → 140 GB
+# For models > 40 GB, use an A100 80GB or multi-GPU pod.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: abliteration-ablate
+  namespace: abliteration
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: abliterator
+          image: <REGISTRY>/llm-abliterator:latest
+          imagePullPolicy: Always
+          env:
+            - name: MODE
+              value: "ablate"
+            - name: MODEL_PATH
+              value: "/models/input"
+            - name: WORKSPACE_DIR
+              value: "/workspace/run"
+            - name: OUTPUT_DIR
+              value: "/workspace/run/output"
+            - name: MEASUREMENTS_FILE
+              value: "/workspace/run/measurements.pt"
+            - name: ABLATION_YAML
+              value: "/workspace/run/ablation.yml"
+            - name: PROJECTED
+              value: "true"
+            - name: NORM_PRESERVE
+              value: "true"
+            - name: SCALE
+              value: "1.0"
+            - name: SPARSITY
+              value: "0.0"
+            - name: DEST_LAYER_START
+              value: "0.30"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "48Gi"
+              cpu: "4"
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "96Gi"
+              cpu: "16"
+          volumeMounts:
+            - name: model-input
+              mountPath: /models/input
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: model-input
+          persistentVolumeClaim:
+            claimName: model-input-pvc
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: abliteration-workspace-pvc
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule

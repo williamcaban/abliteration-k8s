@@ -1,0 +1,72 @@
+# Measure-only job — use when you want to inspect layer quality before committing
+# to ablation parameters.  After this job completes:
+#   1. kubectl logs job/abliteration-measure -n abliteration   (see layer analysis)
+#   2. Optionally run job-analyze.yaml for chart output
+#   3. Edit ablation.yml on the workspace PVC manually if needed
+#   4. Run job-ablate.yaml with MODE=ablate
+#
+# This job can use a smaller GPU than ablate since --quant 4bit is set.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: abliteration-measure
+  namespace: abliteration
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: abliterator
+          image: <REGISTRY>/llm-abliterator:latest
+          imagePullPolicy: Always
+          env:
+            - name: MODE
+              value: "measure"
+            - name: MODEL_PATH
+              value: "/models/input"
+            - name: WORKSPACE_DIR
+              value: "/workspace/run"
+            - name: MEASUREMENTS_FILE
+              value: "/workspace/run/measurements.pt"
+            - name: QUANT
+              value: "4bit"
+            - name: PROJECTED
+              value: "true"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "24Gi"
+              cpu: "4"
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "48Gi"
+              cpu: "8"
+          volumeMounts:
+            - name: model-input
+              mountPath: /models/input
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: model-input
+          persistentVolumeClaim:
+            claimName: model-input-pvc
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: abliteration-workspace-pvc
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
