@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:   # allow manual trigger from GitHub Actions UI or gh CLI
 
 jobs:
   build-push:
