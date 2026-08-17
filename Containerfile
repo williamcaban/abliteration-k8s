@@ -50,6 +50,7 @@ RUN git clone --depth 1 \
 
 # Copy helper scripts
 COPY auto_yaml.py   /opt/abliterator/auto_yaml.py
+COPY compare.py     /opt/abliterator/compare.py
 COPY entrypoint.sh  /opt/abliterator/entrypoint.sh
 RUN chmod +x /opt/abliterator/entrypoint.sh
 

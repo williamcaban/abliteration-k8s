@@ -1,0 +1,69 @@
+# Side-by-side evaluation: original vs. abliterated model.
+# Requires:
+#   - abliteration-workspace-pvc with a completed abliteration run at /workspace/run/output
+#   - The original model ID (or a local path also on the PVC)
+#
+# The comparison script is baked into the image at /opt/abliterator/compare.py.
+# Output is printed to stdout — collect with: kubectl logs job/abliteration-compare
+#
+# GPU sizing: loads two 7B models sequentially — peak is one model at a time.
+# An L4 (24 GB) handles Qwen 7B in bfloat16 comfortably.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: abliteration-compare
+  namespace: abliteration
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: compare
+          image: <REGISTRY>/llm-abliterator:latest   # replace with your image
+          imagePullPolicy: Always
+          command: ["python3", "/opt/abliterator/compare.py"]
+          env:
+            # Override these to point at different models
+            - name: ORIGINAL_MODEL
+              value: "Qwen/Qwen2.5-7B-Instruct"
+            - name: ABLITERATED_MODEL
+              value: "/workspace/run/output"
+            - name: MAX_NEW_TOKENS
+              value: "300"
+            # Required for non-root OpenShift UIDs
+            - name: TRITON_CACHE_DIR
+              value: "/workspace/triton_cache"
+            - name: HOME
+              value: "/workspace"
+            - name: HF_HOME
+              value: "/workspace/hf_cache"
+            - name: TRANSFORMERS_CACHE
+              value: "/workspace/hf_cache"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+              memory: "32Gi"
+              cpu: "4"
+            limits:
+              nvidia.com/gpu: "1"
+              memory: "48Gi"
+              cpu: "8"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: abliteration-workspace-pvc
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule

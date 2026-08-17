@@ -34,6 +34,10 @@ spec:
               value: "4bit"
             - name: PROJECTED
               value: "true"
+            - name: TRITON_CACHE_DIR
+              value: "/workspace/triton_cache"
+            - name: HOME
+              value: "/workspace"
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:

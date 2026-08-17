@@ -49,6 +49,11 @@ spec:
               value: "0.0"
             - name: DEST_LAYER_START
               value: "0.30"
+            # Required for non-root OpenShift UIDs: Triton JIT cache + HF downloads
+            - name: TRITON_CACHE_DIR
+              value: "/workspace/triton_cache"
+            - name: HOME
+              value: "/workspace"
             # HF token — only needed if downloading from Hub instead of local PVC
             - name: HF_TOKEN
               valueFrom:

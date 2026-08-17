@@ -44,6 +44,10 @@ spec:
               value: "0.0"
             - name: DEST_LAYER_START
               value: "0.30"
+            - name: TRITON_CACHE_DIR
+              value: "/workspace/triton_cache"
+            - name: HOME
+              value: "/workspace"
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef:
