@@ -65,6 +65,8 @@ USER 1001
 # HuggingFace cache lands on the workspace PVC when /workspace is mounted
 ENV HF_HOME=/workspace/hf_cache \
     TRANSFORMERS_CACHE=/workspace/hf_cache \
+    TRITON_CACHE_DIR=/workspace/triton_cache \
+    HOME=/workspace \
     PYTHONUNBUFFERED=1
 
 ENTRYPOINT ["/opt/abliterator/entrypoint.sh"]
