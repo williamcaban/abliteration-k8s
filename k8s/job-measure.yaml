@@ -17,10 +17,6 @@ spec:
   template:
     spec:
       restartPolicy: Never
-      securityContext:
-        runAsUser: 1001
-        runAsGroup: 0
-        fsGroup: 0
       containers:
         - name: abliterator
           image: <REGISTRY>/llm-abliterator:latest

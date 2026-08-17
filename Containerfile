@@ -18,7 +18,9 @@ RUN dnf install -y python3.11 python3.11-pip git \
     && ln -sf /usr/bin/pip3.11    /usr/local/bin/pip3 \
     && ln -sf /usr/bin/pip3.11    /usr/local/bin/pip
 
-WORKDIR /workspace
+# Scripts live at /opt/abliterator — outside the /workspace PVC mount so
+# they are not shadowed when the PVC is attached at runtime.
+WORKDIR /opt/abliterator
 
 # Upgrade pip — the python3.11 shipped in UBI9 bundles an old pip that
 # cannot satisfy flit_core>=3.11 required by modern PyTorch wheels.
@@ -44,15 +46,19 @@ RUN pip install --no-cache-dir \
 # Clone tool at build time for reproducibility
 RUN git clone --depth 1 \
     https://github.com/NousResearch/llm-abliteration.git \
-    /workspace/llm-abliteration
+    /opt/abliterator/llm-abliteration
 
 # Copy helper scripts
-COPY auto_yaml.py   /workspace/auto_yaml.py
-COPY entrypoint.sh  /workspace/entrypoint.sh
-RUN chmod +x /workspace/entrypoint.sh
+COPY auto_yaml.py   /opt/abliterator/auto_yaml.py
+COPY entrypoint.sh  /opt/abliterator/entrypoint.sh
+RUN chmod +x /opt/abliterator/entrypoint.sh
 
-# OpenShift compatibility: UID 1001, GID 0 so any assigned UID can write
-RUN chown -R 1001:0 /workspace && chmod -R g=u /workspace
+# /workspace is the PVC mount point — create it so it exists at startup
+RUN mkdir -p /workspace
+
+# OpenShift compatibility: GID 0 on both dirs so any assigned UID can write
+RUN chown -R 1001:0 /opt/abliterator /workspace && \
+    chmod -R g=u    /opt/abliterator /workspace
 
 USER 1001
 
@@ -61,4 +67,4 @@ ENV HF_HOME=/workspace/hf_cache \
     TRANSFORMERS_CACHE=/workspace/hf_cache \
     PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["/workspace/entrypoint.sh"]
+ENTRYPOINT ["/opt/abliterator/entrypoint.sh"]

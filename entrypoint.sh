@@ -66,21 +66,21 @@ run_measure() {
     [ -n "$DATA_HARMFUL" ]  && ARGS+=(--data-harmful "$DATA_HARMFUL")
     [ -n "$DATA_HARMLESS" ] && ARGS+=(--data-harmless "$DATA_HARMLESS")
     [ "$PROJECTED" = "true" ] && ARGS+=(--projected)
-    cd /workspace/llm-abliteration
+    cd /opt/abliterator/llm-abliteration
     python measure.py "${ARGS[@]}"
     echo "==> [measure] Done — measurements at $MEASUREMENTS_FILE"
 }
 
 run_analyze() {
     echo "==> [analyze] Layer-by-layer signal quality (stdout only)"
-    cd /workspace/llm-abliteration
+    cd /opt/abliterator/llm-abliteration
     python analyze.py "$MEASUREMENTS_FILE"
     echo "==> [analyze] Done"
 }
 
 gen_yaml() {
     echo "==> [auto_yaml] Generating ablation YAML from measurements"
-    python /workspace/auto_yaml.py \
+    python /opt/abliterator/auto_yaml.py \
         --measurements "$MEASUREMENTS_FILE" \
         --model "$MODEL" \
         --output-dir "$OUTPUT_DIR" \
@@ -96,7 +96,7 @@ run_ablate() {
     ARGS=("$ABLATION_YAML")
     [ "$NORM_PRESERVE" = "true" ] && ARGS+=(--normpreserve)
     [ "$PROJECTED" = "true" ]     && ARGS+=(--projected)
-    cd /workspace/llm-abliteration
+    cd /opt/abliterator/llm-abliteration
     python sharded_ablate.py "${ARGS[@]}"
     echo "==> [ablate] Done — model saved to $OUTPUT_DIR"
 }
