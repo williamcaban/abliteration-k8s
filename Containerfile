@@ -20,6 +20,10 @@ RUN dnf install -y python3.11 python3.11-pip git \
 
 WORKDIR /workspace
 
+# Upgrade pip — the python3.11 shipped in UBI9 bundles an old pip that
+# cannot satisfy flit_core>=3.11 required by modern PyTorch wheels.
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
 # PyTorch first (large wheel; separate layer for better cache reuse)
 RUN pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}
