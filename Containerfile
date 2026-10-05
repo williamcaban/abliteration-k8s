@@ -45,11 +45,17 @@ RUN pip install --no-cache-dir \
 
 # garak — LLM vulnerability scanner used by compare.py (before/after eval).
 # Core deps shared with the abliteration stack; pulled after torch so the
-# resolver keeps the CUDA torch already installed above. setuptools is
-# re-pinned here: garak pulls nvidia-cuda bindings that install a
-# _cuda_bindings_redirector.pth which shadows stdlib at build isolation time
-# unless setuptools/wheel are current.
-RUN pip install --no-cache-dir --upgrade setuptools wheel \
+# resolver keeps the CUDA torch already installed above.
+# NOTE: torch's cu126 resolver pulls cuda-bindings, which installs a
+# _cuda_bindings_redirector.pth that breaks every later pip build-isolation
+# subprocess on RHEL's python layout (sys.path corruption -> "No module named
+# json/traceback" during unrelated sdist builds, e.g. ecoji). torch runs fine
+# without the redirector, so remove it (and its module) before garak.
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && rm -f /usr/local/lib64/python3.11/site-packages/_cuda_bindings_redirector.pth \
+             /usr/local/lib/python3.11/site-packages/_cuda_bindings_redirector.pth \
+             /usr/local/lib64/python3.11/site-packages/_cuda_bindings_redirector.py \
+             /usr/local/lib/python3.11/site-packages/_cuda_bindings_redirector.py \
     && pip install --no-cache-dir garak
 
 # Clone tool at build time for reproducibility
