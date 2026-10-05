@@ -69,6 +69,7 @@ PROBE_SPEC  = os.getenv(
 )
 GENERATIONS = int(os.getenv("GARAK_GENERATIONS", "1"))
 MAX_TOKENS  = int(os.getenv("GARAK_MAX_TOKENS", "300"))
+MAX_SAMPLES = int(os.getenv("GARAK_MAX_SAMPLES", "0"))  # 0 = full run
 REPORT_DIR  = os.getenv("GARAK_REPORT_DIR", "/workspace/reports")
 
 CONTROL_PROBE = "probes.test.Test"   # harness sanity check, excluded from diff
@@ -219,6 +220,30 @@ def run_garak(label: str, model_path: str, report_prefix: str) -> tuple[Path, di
     _config.plugins.target_type = "abliterate_compare.BF16HFGenerator"
     _config.plugins.target_name = model_path
 
+    if MAX_SAMPLES > 0:
+        # Lab-scale cap (GARAK_MAX_SAMPLES, e.g. 100): the probewise harness
+        # instantiates each probe via _plugins.load_plugin and runs its full
+        # prompt set. We wrap _plugins.load_plugin so every probe instance
+        # comes back with its prompt list trimmed to a per-probe share of
+        # MAX_SAMPLES (N probes → ceil(MAX_SAMPLES / N) prompts each, per leg).
+        import math as _math
+        from garak import _plugins as _gp
+
+        _orig_load_plugin = _gp.load_plugin
+        _cap_state = {"n": 0}
+
+        def _count_first(*args, **kwargs):
+            # first pass only: count how many probes the queue holds
+            plugin = _orig_load_plugin(*args, **kwargs)
+            if plugin is not None and getattr(plugin, "prompts", None):
+                _cap_state["n"] += 1
+                per_probe = max(1, _math.ceil(MAX_SAMPLES / 28))  # 28 probe classes in the default queue
+                plugin.prompts = plugin.prompts[:per_probe]
+                print(f"  [cap] {type(plugin).__name__}: prompts trimmed to {len(plugin.prompts)}", flush=True)
+            return plugin
+
+        _gp.load_plugin = _count_first
+
     print("  invoking garak CLI in-process...", flush=True)
     from garak.cli import main as garak_main
     garak_main(argv)
@@ -245,6 +270,18 @@ def run_garak(label: str, model_path: str, report_prefix: str) -> tuple[Path, di
 def summarize(entries: list[dict], label: str) -> dict:
     attempts = [e for e in entries if e.get("entry_type") == "attempt"]
     evals    = [e for e in entries if e.get("entry_type") == "eval"]
+
+    # garak's JSONL logs each attempt twice (probe pass, then detector pass —
+    # same uuid). Dedupe by uuid so samples aren't double-counted.
+    seen_uuids: set[str] = set()
+    unique_attempts = []
+    for a in attempts:
+        uuid = a.get("uuid")
+        if uuid is None or uuid not in seen_uuids:
+            if uuid is not None:
+                seen_uuids.add(uuid)
+            unique_attempts.append(a)
+    attempts = unique_attempts
 
     by_probe: dict[str, dict] = {}
     for a in attempts:
