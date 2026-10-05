@@ -45,8 +45,12 @@ RUN pip install --no-cache-dir \
 
 # garak — LLM vulnerability scanner used by compare.py (before/after eval).
 # Core deps shared with the abliteration stack; pulled after torch so the
-# resolver keeps the CUDA torch already installed above.
-RUN pip install --no-cache-dir garak
+# resolver keeps the CUDA torch already installed above. setuptools is
+# re-pinned here: garak pulls nvidia-cuda bindings that install a
+# _cuda_bindings_redirector.pth which shadows stdlib at build isolation time
+# unless setuptools/wheel are current.
+RUN pip install --no-cache-dir --upgrade setuptools wheel \
+    && pip install --no-cache-dir garak
 
 # Clone tool at build time for reproducibility
 RUN git clone --depth 1 \
