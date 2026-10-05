@@ -1,4 +1,8 @@
-# Side-by-side evaluation: original vs. abliterated model.
+# Side-by-side evaluation: original vs. abliterated model, via NVIDIA garak.
+# Runs the same probe queue (malwaregen, dan, grandma, encoding, tap) against
+# both models with the mitigation.MitigationBypass refusal detector and prints
+# a before/after attack-success-rate diff. JSONL reports land on the PVC at
+# /workspace/reports (garak.<prefix>.report.jsonl) plus a compare-summary JSON.
 # Requires:
 #   - abliteration-workspace-pvc with a completed abliteration run at /workspace/run/output
 #   - The original model ID (or a local path also on the PVC)
@@ -6,8 +10,8 @@
 # The comparison script is baked into the image at /opt/abliterator/compare.py.
 # Output is printed to stdout — collect with: kubectl logs job/abliteration-compare
 #
-# GPU sizing: loads two 7B models sequentially — peak is one model at a time.
-# An L4 (24 GB) handles Qwen 7B in bfloat16 comfortably.
+# GPU sizing: loads two 8B models sequentially — peak is one model at a time.
+# An L4 (24 GB) handles Qwen3-8B in bfloat16 comfortably.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -27,11 +31,18 @@ spec:
           env:
             # Override these to point at different models
             - name: ORIGINAL_MODEL
-              value: "Qwen/Qwen2.5-7B-Instruct"
+              value: "Qwen/Qwen3-8B"
             - name: ABLITERATED_MODEL
               value: "/workspace/run/output"
-            - name: MAX_NEW_TOKENS
+            # garak probe queue: harmful generation, jailbreak, injection probes
+            - name: GARAK_PROBES
+              value: "probes.malwaregen,probes.dan,probes.grandma,probes.encoding,probes.tap"
+            - name: GARAK_GENERATIONS
+              value: "1"
+            - name: GARAK_MAX_TOKENS
               value: "300"
+            - name: GARAK_REPORT_DIR
+              value: "/workspace/reports"
             # Required for non-root OpenShift UIDs
             - name: TRITON_CACHE_DIR
               value: "/workspace/triton_cache"

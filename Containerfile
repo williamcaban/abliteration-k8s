@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/${TORCH_CUDA_INDEX}
 
-# Remaining deps — matches NousResearch requirements.txt + safetensors
+# Remaining deps — matches NousResearch requirements.txt + safetensors + garak
 RUN pip install --no-cache-dir \
     accelerate \
     bitsandbytes \
@@ -42,6 +42,11 @@ RUN pip install --no-cache-dir \
     safetensors \
     tqdm \
     transformers
+
+# garak — LLM vulnerability scanner used by compare.py (before/after eval).
+# Core deps shared with the abliteration stack; pulled after torch so the
+# resolver keeps the CUDA torch already installed above.
+RUN pip install --no-cache-dir garak
 
 # Clone tool at build time for reproducibility
 RUN git clone --depth 1 \

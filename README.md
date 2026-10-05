@@ -87,17 +87,39 @@ kubectl logs -f job/abliteration-ablate -n abliteration
 
 ### 6. Run the side-by-side evaluation
 
-After ablation completes, compare original vs. abliterated model responses:
+After ablation completes, compare original vs. abliterated model responses with **garak** (NVIDIA's LLM vulnerability scanner):
 
 ```bash
 kubectl apply -f k8s/job-compare.yaml
 kubectl logs -f job/abliteration-compare -n abliteration
 ```
 
-The compare script (`compare.py`) runs 8 prompts spanning three categories:
-- **HARMFUL** — pipe bomb, phishing email, meth synthesis
-- **BORDERLINE** — SQL injection, 2FA bypass techniques
-- **BENIGN** — capital of France, autumn poem, photosynthesis (regression check)
+The compare script (`compare.py`) runs two full garak scans — the original model and the abliterated model — over the same probe queue, then prints a before/after attack-success-rate (ASR) diff:
+
+| Probe queue | What it exercises |
+|---|---|
+| `probes.malwaregen` | Harmful generation requests (malware, payloads, exploits) |
+| `probes.dan` | DAN-style jailbreaks |
+| `probes.grandma` | Appeal-based jailbreaks |
+| `probes.encoding` | Payloads hidden in text encodings (prompt injection) |
+| `probes.tap` | TAP-style tree-of-attacks jailbreaks |
+
+Every output is scored by garak's `mitigation.MitigationBypass` refusal detector (inverted: 1.0 = the model complied with the harmful request). The printed diff gives ASR per category (harmful behavior / jailbreak / prompt injection) for both models — the before/after result. JSONL reports land on the workspace PVC at `/workspace/reports/` for full trace inspection.
+
+`GARAK_PROBES` overrides the probe queue; `GARAK_GENERATIONS` (default 1) sets generations per prompt — raise it for tighter ASR estimates.
+
+### 6b. Calibration data (measure step)
+
+The measure step uses the upstream `harmful.parquet` / `harmless.parquet` sets by default. To calibrate against the [Necent/llm-jailbreak-prompt-injection-dataset](https://huggingface.co/datasets/Necent/llm-jailbreak-prompt-injection-dataset) (gated; 30+ aggregated safety datasets with orthogonal `prompt_harmful`/`prompt_adversarial` labels), export filtered prompts and pass them via `DATA_HARMFUL`/`DATA_HARMLESS`:
+
+```python
+from datasets import load_dataset
+ds = load_dataset("Necent/llm-jailbreak-prompt-injection-dataset", split="train")
+ds.filter(lambda x: x["prompt_harmful"] == 1).to_pandas()["prompt"].to_csv("harmful.txt", index=False, header=False)
+ds.filter(lambda x: x["prompt_harmful"] == 0).to_pandas()["prompt"].to_csv("harmless.txt", index=False, header=False)
+```
+
+For Chinese/multilingual models, set `DECCP=true` to add the DECCP censored-Chinese topics to the harmful set.
 
 ### 7. Retrieve the output model
 
@@ -186,12 +208,12 @@ kubectl logs -f job/abliteration-compare -n abliteration
 | Phase | Time |
 |---|---|
 | HF model download (4 shards, ~14 GB) | ~2–4 min |
-| Measure (36 harmful + 20 harmless, 4-bit) | ~1 min |
+| Measure (upstream harmful/harmless sets, 4-bit) | ~1–2 min |
 | Analyze | <5 sec |
 | Auto-YAML generation | <5 sec |
 | Ablate (3 of 4 shards, 20 layers) | ~1 min |
-| Compare (8 prompts × 2 models) | ~5 min |
-| **Total** | **~10–15 min** |
+| Compare (garak scan × 2 models) | ~20–40 min |
+| **Total** | **~30–50 min** |
 
 ## Evaluation Results (Qwen 2.5 7B — Validated Run)
 
@@ -215,6 +237,15 @@ Destination layers: 8–27 (20 layers), measurement source: layer 23
 
 Signal quality peaks in layers 20–24 (70–85% depth), consistent with the research literature showing refusal directions concentrate in middle-to-late layers.
 
+> **Note (improved defaults):** `auto_yaml.py` now searches a depth-scaled
+> window (30–70% of depth) and stops ablating at 90% of depth by default —
+> the old fixed 30–85% window with ablation-to-the-last-layer over-ablated
+> shallow layers and degraded token binding. It also supports
+> `--per-layer-source`, which gives each destination layer its own nearest
+> high-quality measurement source (matching the upstream reference config's
+> split measurement layers, e.g. gemma3-12b measures layers 11–23 at 23 and
+> layers 24–41 at 29). See "Improving the ablation" below.
+
 ### Weight tensors modified
 
 For each destination layer: `mlp.down_proj.weight` and `self_attn.o_proj.weight` — the output projections where the refusal direction has most influence. 40 total weight tensors across 3 of 4 safetensors shards.
@@ -227,7 +258,41 @@ For each destination layer: `mlp.down_proj.weight` and `self_attn.o_proj.weight`
 4. **Benign quality preserved** — the photosynthesis explanation was word-for-word identical between original and abliterated for the first 3 paragraphs, confirming no general capability regression.
 5. **Partial compliance on meth synthesis** — the abliterated model still hedged. This reflects that refusal is a manifold (multiple directions), not a single vector; the default layer-23 ablation removes the primary direction but not all safety-adjacent features.
 
-## GPU Sizing
+## Improving the ablation
+
+Two levers, both motivated by 2025-2026 research showing refusal occupies a multi-dimensional subspace spread across layers (Wollschläger et al. 2025; pralab AAAI 2026), not a single direction:
+
+1. **Per-layer measurement sources** — run `auto_yaml.py` with `--per-layer-source` (or set it via a custom ablation.yml). Each destination layer is then measured by the nearest high-quality layer instead of one global source, tracking the refusal direction as it drifts across depth. This directly addresses the "partial compliance" artifact: ablating only one layer's direction leaves other layers' safety-adjacent directions intact.
+
+2. **Depth-bounded destination window** — the default destination window is now 40–90% of depth (`--dest-start 0.40 --dest-end 0.90`). Ablating the final layers removes mostly token-binding features (output quality cost) rather than refusal features. Widening the window raises ablation strength at a quality cost.
+
+Additional knobs: `--search-start/--search-end` control the measurement search band (default 30–70% of depth, matching the upstream reference config's practice); `--scale` scales the ablation magnitude (>1.0 for a stronger sweep); `--sparsity` sparsifies the applied direction.
+
+After a stronger ablation, re-run the compare job — the garak ASR diff is the acceptance test: ASR should rise toward compliance on harmful_behavior/jailbreak categories while benign behavior stays intact (check the JSONL reports for per-attempt outputs).
+
+## Candidate Models for Abliteration (2025-2026)
+
+Tested baseline: **Qwen 2.5 7B Instruct** (validated run, results above). More recent candidates, sized for a single 24 GB L4 (bfloat16):
+
+| Model | Params | Layers | bf16 VRAM | Why this candidate |
+|---|---|---|---|---|
+| [Qwen/Qwen3-8B](https://huggingface.co/Qwen/Qwen3-8B) | 8.2B | 36 | ~16 GB | Current-gen successor to the 2.5 baseline. Apache-2.0, public (not gated), 4 safetensors shards. Most-susceptible Qwen3 dense model in the literature (38.9pp refusal reduction in the 24-model sweep, arXiv 2607.02714), vs nearly resistant Qwen3-14B (1.4pp). |
+| [google/gemma-3-12b-it](https://huggingface.co/google/gemma-3-12b-it) | 12B | 48 | ~24 GB | Ships with the upstream tool's own reference YAML (`gemma3-12b-it.yml`), which uses per-layer measurement sources — the pattern `auto_yaml.py --per-layer-source` now reproduces automatically. |
+| [mistralai/Mistral-Small-3.2-24B-Instruct-2506](https://huggingface.co/mistralai/Mistral-Small-3.2-24B-Instruct-2506) | 24B | 48 | ~48 GB | Largest single-L4 candidate at 4-bit; 98.2% post-ablation compliance in the 110-prompt evaluation (go.alice.io abliteration report). Needs 2 GPUs for bf16 ablation. |
+
+The default compare target is **Qwen3-8B** (`ORIGINAL_MODEL=Qwen/Qwen3-8B`): it fits one L4 in bf16 end to end, needs no HF token, and its refusal behavior is well-characterized in the 2025-2026 literature. For a before/after run:
+
+```bash
+# job-full.yaml: MODEL_ID=Qwen/Qwen3-8B, then job-compare.yaml:
+#   ORIGINAL_MODEL=Qwen/Qwen3-8B, ABLITERATED_MODEL=/workspace/run/output
+```
+
+Qwen3-8B notes for this pipeline:
+- 36 layers → the depth-scaled search band (30–70%) covers layers 11–25; the destination window (40–90%) covers 14–32.
+- **Thinking mode**: Qwen3's chat template wraps reasoning in a think block before the final response — the compare job's `GARAK_MAX_TOKENS` (300) truncates long thinking traces; for non-thinking evaluation add `/no_think` to probes or use `enable_thinking=False` via a custom ablation/compare config.
+- **Greedy decoding warning**: Qwen's model card advises against greedy decoding with thinking mode (degradation, endless repetitions). The compare generator defaults to greedy (`hf_args.do_sample=False`) for reproducibility — keep `MAX_TOKENS` low or evaluate in non-thinking mode.
+- `DECCP=true` is available for the measure step (multilingual refusal coverage).
+
 
 The **ablate** step loads the model in full bfloat16 precision — the bottleneck for VRAM.
 
@@ -258,12 +323,16 @@ The **measure** step uses `--quant 4bit` (bitsandbytes), reducing VRAM to ~25% o
 | `NORM_PRESERVE` | `true` | Preserve weight norms during ablation |
 | `SCALE` | `1.0` | Ablation scale factor for auto-generated YAML |
 | `SPARSITY` | `0.0` | Sparsity fraction for auto-generated YAML |
-| `DEST_LAYER_START` | `0.30` | Start of destination layer range (fraction of total) |
+| `DEST_LAYER_START` | `0.40` | Start of destination layer range (fraction of total) |
+| `DECCP` | `false` | Add DECCP censored Chinese topics to harmful prompts (measure step) |
 | `TRITON_CACHE_DIR` | `/workspace/triton_cache` | Triton JIT cache (must be writable; set in all Jobs) |
 | `HOME` | `/workspace` | Must be writable for non-root OpenShift UIDs |
-| `ORIGINAL_MODEL` | `Qwen/Qwen2.5-7B-Instruct` | (compare.py only) original model |
+| `ORIGINAL_MODEL` | `Qwen/Qwen3-8B` | (compare.py only) original model |
 | `ABLITERATED_MODEL` | `/workspace/run/output` | (compare.py only) abliterated model path |
-| `MAX_NEW_TOKENS` | `300` | (compare.py only) tokens per response |
+| `GARAK_PROBES` | bundled queue | (compare.py only) garak probe spec |
+| `GARAK_GENERATIONS` | `1` | (compare.py only) generations per garak prompt |
+| `GARAK_MAX_TOKENS` | `300` | (compare.py only) max new tokens per garak output |
+| `GARAK_REPORT_DIR` | `/workspace/reports` | (compare.py only) garak JSONL report directory |
 
 ## Troubleshooting
 
@@ -295,23 +364,24 @@ model-input-pvc             abliteration-workspace-pvc
 (full-precision model)       /workspace/
         │                    ├── hf_cache/      ← HF downloads
         │                    ├── triton_cache/  ← Triton JIT
+        │                    ├── reports/       ← garak JSONL + compare summary
         │                    ├── run/
         ▼                    │   ├── measurements.pt
   [measure job] ─────────────►  │   ├── ablation.yml
         │                    │   └── output/    ← abliterated model
         │               [ablate job] ──────────────────►
         │                    │
-        └────────────────────► [compare job] → stdout (side-by-side)
+        └────────────────────► [compare job] → stdout (garak ASR diff)
 ```
 
 ## File Structure
 
 ```
 .
-├── Containerfile          # nvidia/cuda:13.3.1-cudnn-runtime-ubi9 + PyTorch + tool
+├── Containerfile          # nvidia/cuda:13.3.1-cudnn-runtime-ubi9 + PyTorch + tool + garak
 ├── entrypoint.sh          # 4-mode entrypoint (measure|analyze|ablate|full)
 ├── auto_yaml.py           # auto-select best layer, generate ablation YAML
-├── compare.py             # side-by-side original vs. abliterated evaluation
+├── compare.py             # garak-based before/after evaluation (ASR diff)
 ├── .github/
 │   └── workflows/
 │       └── build-push.yml # CI: build on push to main → quay.io/wcabanba/abliteration-k8s
@@ -321,12 +391,14 @@ model-input-pvc             abliteration-workspace-pvc
     ├── job-full.yaml      # full pipeline (measure + ablate)
     ├── job-measure.yaml   # measure only
     ├── job-ablate.yaml    # ablate only (requires existing measurements.pt)
-    └── job-compare.yaml   # side-by-side evaluation
+    └── job-compare.yaml   # garak before/after evaluation
 ```
 
 ## Credits
 
 - [NousResearch/llm-abliteration](https://github.com/NousResearch/llm-abliteration) — upstream tool
+- [NVIDIA/garak](https://github.com/NVIDIA/garak) — LLM vulnerability scanner powering the compare step
 - Arditi et al. (NeurIPS 2024) — "Refusal in Language Models Is Mediated by a Single Direction"
 - Norm-preserving biprojection: [grimjim](https://huggingface.co/blog/grimjim/norm-preserving-biprojected-abliteration)
 - AAAI 2026 (pralab) — refusal as a manifold, not a single vector
+- [Necent/llm-jailbreak-prompt-injection-dataset](https://huggingface.co/datasets/Necent/llm-jailbreak-prompt-injection-dataset) — optional measure-step calibration data

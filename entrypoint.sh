@@ -27,7 +27,9 @@ set -euo pipefail
 #   NORM_PRESERVE    — true|false — preserve weight norms during ablation (default: true)
 #   SCALE            — ablation scale factor for auto-generated YAML (default: 1.0)
 #   SPARSITY         — sparsity for auto-generated YAML (default: 0.0)
-#   DEST_LAYER_START — fraction of layers to start ablating from (default: 0.30)
+#   DEST_LAYER_START — fraction of layers to start ablating from (default: 0.40)
+#   DECCP            — true|false — add DECCP censored Chinese topics to harmful
+#                      prompts (for Chinese/multilingual models; default: false)
 # ---------------------------------------------------------------------------
 
 MODE="${MODE:-full}"
@@ -44,7 +46,8 @@ PROJECTED="${PROJECTED:-true}"
 NORM_PRESERVE="${NORM_PRESERVE:-true}"
 SCALE="${SCALE:-1.0}"
 SPARSITY="${SPARSITY:-0.0}"
-DEST_LAYER_START="${DEST_LAYER_START:-0.30}"
+DEST_LAYER_START="${DEST_LAYER_START:-0.40}"
+DECCP="${DECCP:-false}"
 
 # Resolve model source
 if [ -n "$MODEL_PATH" ]; then
@@ -61,11 +64,13 @@ mkdir -p "$WORKSPACE_DIR" "$OUTPUT_DIR"
 # ---------------------------------------------------------------------------
 run_measure() {
     echo "==> [measure] Collecting harmful/harmless activations"
+    # NOTE: measure.py's flag is --quant-measure (-q); older --quant is invalid
     ARGS=(-m "$MODEL" -o "$MEASUREMENTS_FILE")
-    [ -n "$QUANT" ]         && ARGS+=(--quant "$QUANT")
+    [ -n "$QUANT" ]         && ARGS+=(--quant-measure "$QUANT")
     [ -n "$DATA_HARMFUL" ]  && ARGS+=(--data-harmful "$DATA_HARMFUL")
     [ -n "$DATA_HARMLESS" ] && ARGS+=(--data-harmless "$DATA_HARMLESS")
     [ "$PROJECTED" = "true" ] && ARGS+=(--projected)
+    [ "$DECCP" = "true" ]     && ARGS+=(--deccp)
     cd /opt/abliterator/llm-abliteration
     python measure.py "${ARGS[@]}"
     echo "==> [measure] Done — measurements at $MEASUREMENTS_FILE"
