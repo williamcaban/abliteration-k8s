@@ -141,8 +141,17 @@ def write_yaml(tag: str, output_dir: Path, dest_start: str) -> Path:
 
 
 def ablate(tag: str, yaml_path: Path) -> Path:
-    """Run hybrid_ablate.py for one depth variant."""
-    output_dir = yaml_path.parent / "output"
+    """Run hybrid_ablate.py for one depth variant.
+
+    The output dir is read FROM the generated YAML (its `output:` field) — that
+    field is the single source of truth hybrid_ablate.py saves to; computing it
+    separately here drifted from auto_yaml's value and the model landed in the
+    wrong directory (sweep run 1 failure).
+    """
+    import yaml as _yaml
+
+    with open(yaml_path, encoding="utf-8") as f:
+        output_dir = Path(_yaml.safe_load(f)["output"])
     cmd = [
         sys.executable, str(REPO / "hybrid_ablate.py"), str(yaml_path),
         "--normpreserve", "--projected",
