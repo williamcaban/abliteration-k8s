@@ -451,6 +451,23 @@ def main() -> None:
         orig_summary = run_garak("ORIGINAL", ORIGINAL, "garak-original")
     ablit_summary = run_garak("ABLITERATED", ABLITERATED, "garak-abliterated")
 
+    if orig_summary is None:
+        # sweep mode without a cached original report: emit the ablit-side
+        # summary only and exit 0 (depth_sweep.py reads the sweep JSONL)
+        print("\n── ABLITERATED summary (no ORIGINAL leg) " + "─" * 30)
+        for probe in sorted(ablit_summary[1]["probes"]):
+            s = ablit_summary[1]["probes"][probe]
+            asr = s["asr"]
+            a_s = f"{asr*100:6.1f}%" if asr is not None else "   n/a"
+            print(f"  {probe:38s} {s['n_scored']:>4d} {a_s}")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        out = Path(REPORT_DIR) / f"compare-summary-{stamp}.json"
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({"original": None, "abliterated": ablit_summary[1]}, f, indent=2)
+        print(f"\nsummary written: {out}")
+        print(f"garak JSONL reports: {ablit_summary[0]}")
+        return
+
     print_diff(orig_summary[1], ablit_summary[1])
 
     # persist machine-readable summary for the job logs
