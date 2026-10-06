@@ -64,9 +64,10 @@ RUN git clone --depth 1 \
     /opt/abliterator/llm-abliteration
 
 # Copy helper scripts
-COPY auto_yaml.py   /opt/abliterator/auto_yaml.py
-COPY compare.py     /opt/abliterator/compare.py
-COPY entrypoint.sh  /opt/abliterator/entrypoint.sh
+COPY auto_yaml.py      /opt/abliterator/auto_yaml.py
+COPY compare.py        /opt/abliterator/compare.py
+COPY hybrid_ablate.py  /opt/abliterator/hybrid_ablate.py
+COPY entrypoint.sh     /opt/abliterator/entrypoint.sh
 RUN chmod +x /opt/abliterator/entrypoint.sh
 
 # /workspace is the PVC mount point — create it so it exists at startup
