@@ -431,7 +431,24 @@ def main() -> None:
 
     Path(REPORT_DIR).mkdir(parents=True, exist_ok=True)
 
-    orig_summary = run_garak("ORIGINAL", ORIGINAL, "garak-original")
+    # Depth-sweep mode (depth_sweep.py sets COMPARE_SKIP_ORIGINAL=1): the
+    # ORIGINAL leg was already scored once — run only the ABLITERATED leg so
+    # each variant costs one garak pass instead of two.
+    if os.getenv("COMPARE_SKIP_ORIGINAL") == "1":
+        print("COMPARE_SKIP_ORIGINAL=1 — skipping ORIGINAL leg (already scored)")
+        orig_summary = None
+        # reuse the original-leg report if present
+        orig_report = Path(REPORT_DIR) / "garak-original.report.jsonl"
+        if orig_report.exists():
+            entries = []
+            with open(orig_report, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        entries.append(json.loads(line))
+            orig_summary = ("cached", summarize(entries, "ORIGINAL"))
+    else:
+        orig_summary = run_garak("ORIGINAL", ORIGINAL, "garak-original")
     ablit_summary = run_garak("ABLITERATED", ABLITERATED, "garak-abliterated")
 
     print_diff(orig_summary[1], ablit_summary[1])
