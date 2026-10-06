@@ -254,6 +254,17 @@ def run_garak(label: str, model_path: str, report_prefix: str) -> tuple[Path, di
 
         _gp.load_plugin = _count_first
 
+    # garak's PluginProvider caches generator INSTANCES keyed on
+    # (class, str(config_root)). Both compare legs run in-process with the same
+    # generator class and the same _config object, so the second leg would
+    # receive the first leg's cached generator — evaluating the ORIGINAL model
+    # twice. Clear the cache before each run so the target_name change takes
+    # effect. (Verified: Qwen3.5-2B run evaluated the original twice while the
+    # side-by-side check proved the ablated model itself responds differently.)
+    from garak import _plugins as _plugins_mod
+
+    _plugins_mod.PluginProvider._instance_cache = {}
+
     print("  invoking garak CLI in-process...", flush=True)
     from garak.cli import main as garak_main
     garak_main(argv)
