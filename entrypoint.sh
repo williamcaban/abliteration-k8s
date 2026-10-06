@@ -30,6 +30,9 @@ set -euo pipefail
 #   DEST_LAYER_START — fraction of layers to start ablating from (default: 0.40)
 #   DECCP            — true|false — add DECCP censored Chinese topics to harmful
 #                      prompts (for Chinese/multilingual models; default: false)
+#   HYBRID           — true|false — route ablation through hybrid_ablate.py
+#                      (Qwen3.5-style DeltaNet/attention hybrid stacks;
+#                      default: false)
 # ---------------------------------------------------------------------------
 
 MODE="${MODE:-full}"
@@ -102,7 +105,14 @@ run_ablate() {
     [ "$NORM_PRESERVE" = "true" ] && ARGS+=(--normpreserve)
     [ "$PROJECTED" = "true" ]     && ARGS+=(--projected)
     cd /opt/abliterator/llm-abliteration
-    python sharded_ablate.py "${ARGS[@]}"
+    # HYBRID=1 routes through hybrid_ablate.py, which adds linear_attn.out_proj
+    # targets for Qwen3.5's 3:1 DeltaNet/attention stack (upstream
+    # sharded_ablate.py only edits classic self_attn.o_proj/down_proj keys).
+    if [ "${HYBRID:-false}" = "true" ]; then
+        python /opt/abliterator/hybrid_ablate.py "${ARGS[@]}"
+    else
+        python sharded_ablate.py "${ARGS[@]}"
+    fi
     echo "==> [ablate] Done — model saved to $OUTPUT_DIR"
 }
 

@@ -142,10 +142,14 @@ class BF16HFGenerator(HFModel):
             self.generation_config = transformers.GenerationConfig()
         if hasattr(self.generation_config, "max_length"):
             self.generation_config.max_length = None
-        # gemma-3 ships list-valued eos/pad_token_id in generation_config.json;
-        # transformers' validate() chokes comparing a list to int — normalize to
-        # a single int (first id) for both
-        _eos = self.model.config.eos_token_id
+        # gemma-3 and Qwen3.5 need eos normalization: gemma-3 ships list-valued
+        # eos ids, and Qwen3.5's composite config keeps eos_token_id inside
+        # text_config (config.eos_token_id raises AttributeError). Normalize to
+        # a single int for both generation_config entries.
+        _eos = getattr(self.model.config, "eos_token_id", None)
+        if _eos is None:
+            _tc = getattr(self.model.config, "text_config", None)
+            _eos = getattr(_tc, "eos_token_id", None) if _tc is not None else None
         if isinstance(_eos, (list, tuple)):
             _eos = _eos[0]
         self.generation_config.eos_token_id = _eos
