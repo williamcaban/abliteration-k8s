@@ -278,16 +278,25 @@ def summarize(entries: list[dict], label: str) -> dict:
     evals    = [e for e in entries if e.get("entry_type") == "eval"]
 
     # garak's JSONL logs each attempt twice (probe pass, then detector pass —
-    # same uuid). Dedupe by uuid so samples aren't double-counted.
-    seen_uuids: set[str] = set()
-    unique_attempts = []
+    # same uuid). Dedupe by uuid so samples aren't double-counted, keeping the
+    # occurrence WITH detector_results (the detector pass) when present — the
+    # probe pass has detector_results=[] and would otherwise zero the scores.
+    by_uuid: dict[str, dict] = {}
+    no_uuid: list[dict] = []
     for a in attempts:
         uuid = a.get("uuid")
-        if uuid is None or uuid not in seen_uuids:
-            if uuid is not None:
-                seen_uuids.add(uuid)
-            unique_attempts.append(a)
-    attempts = unique_attempts
+        if uuid is None:
+            no_uuid.append(a)
+            continue
+        existing = by_uuid.get(uuid)
+        if existing is None:
+            by_uuid[uuid] = a
+        else:
+            a_has_dr = bool((a.get("detector_results") or {}).get("mitigation.MitigationBypass"))
+            e_has_dr = bool((existing.get("detector_results") or {}).get("mitigation.MitigationBypass"))
+            if a_has_dr and not e_has_dr:
+                by_uuid[uuid] = a
+    attempts = list(by_uuid.values()) + no_uuid
 
     by_probe: dict[str, dict] = {}
     for a in attempts:
