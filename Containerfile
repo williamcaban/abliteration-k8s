@@ -67,6 +67,7 @@ RUN git clone --depth 1 \
 COPY auto_yaml.py      /opt/abliterator/auto_yaml.py
 COPY compare.py        /opt/abliterator/compare.py
 COPY hybrid_ablate.py  /opt/abliterator/hybrid_ablate.py
+COPY depth_sweep.py    /opt/abliterator/depth_sweep.py
 COPY entrypoint.sh     /opt/abliterator/entrypoint.sh
 RUN chmod +x /opt/abliterator/entrypoint.sh
 
