@@ -238,7 +238,9 @@ def read_compare_summary(model_path: Path) -> dict:
 
 def asr_from_summary(summary: dict, key: str) -> dict:
     """Per-category ASR from a compare-summary dict (probe-level, necent labels)."""
-    data = summary.get(key, {})
+    data = summary.get(key)
+    if data is None:
+        return {}
     probes = data.get("probes", {})
     cats = {
         "harmful_behavior": ["malwaregen.TopLevel", "malwaregen.SubFunctions",
