@@ -142,8 +142,14 @@ class BF16HFGenerator(HFModel):
             self.generation_config = transformers.GenerationConfig()
         if hasattr(self.generation_config, "max_length"):
             self.generation_config.max_length = None
-        self.generation_config.eos_token_id = self.model.config.eos_token_id
-        self.generation_config.pad_token_id = self.model.config.eos_token_id
+        # gemma-3 ships list-valued eos/pad_token_id in generation_config.json;
+        # transformers' validate() chokes comparing a list to int — normalize to
+        # a single int (first id) for both
+        _eos = self.model.config.eos_token_id
+        if isinstance(_eos, (list, tuple)):
+            _eos = _eos[0]
+        self.generation_config.eos_token_id = _eos
+        self.generation_config.pad_token_id = _eos
 
         if not hasattr(self, "hf_args") or not isinstance(self.hf_args, dict):
             self.hf_args = {}
